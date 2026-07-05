@@ -37,5 +37,13 @@ class S3UploadError(DbmgError):
     recovery_action = RecoveryAction.RETRY_INPUT
 
 
+class S3DownloadError(DbmgError):
+    recovery_action = RecoveryAction.RETRY_INPUT
+
+
+class MysqlImportError(DbmgError):
+    recovery_action = RecoveryAction.RESTART
+
+
 class LogWriteError(DbmgError):
     recovery_action = RecoveryAction.EXIT

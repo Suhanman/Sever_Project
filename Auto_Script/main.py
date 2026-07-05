@@ -12,7 +12,7 @@ from utils import wait_for_keypress
 
 MENU: dict[str, tuple[str, "callable"]] = {
     "1": ("DB -> S3 백업 (MySQL)", db_backup.run),
-    "2": ("S3 -> DB 복구 (예정)", db_restore.run),
+    "2": ("S3 -> DB 복구 (MySQL)", db_restore.run),
 }
 
 MAX_RETRIES = 3

@@ -19,6 +19,7 @@ class AppConfig:
     s3_bucket: str
     s3_key_prefix: str
     mysqldump_path: str
+    mysql_path: str
     log_dir: str
 
 
@@ -38,5 +39,6 @@ def load_config() -> AppConfig:
         s3_bucket=os.environ["S3_BUCKET_NAME"],
         s3_key_prefix=os.environ.get("S3_KEY_PREFIX", "").strip("/"),
         mysqldump_path=os.environ.get("MYSQLDUMP_PATH", "mysqldump"),
+        mysql_path=os.environ.get("MYSQL_PATH", "mysql"),
         log_dir=os.environ.get("DBMG_LOG_DIR", "/var/log/dbmg"),
     )
