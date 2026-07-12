@@ -3,13 +3,13 @@ import os
 import subprocess
 import time
 
-import boto3
 from boto3.exceptions import S3UploadFailedError
 from botocore.exceptions import BotoCoreError, ClientError
 
 from config import AppConfig
 from db_common import (
     DbConnectionInfo,
+    build_s3_client,
     decode_subprocess_output,
     list_databases,
     prompt_connection_info,
@@ -149,12 +149,7 @@ def run(config: AppConfig) -> None:
             return
         selected = _prompt_db_selection(dbs)
 
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            region_name=config.aws_region,
-        )
+        s3_client = build_s3_client(config)
 
         for db_name in selected:
             print(f"[{db_name}] 백업을 시작합니다...")

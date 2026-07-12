@@ -1,0 +1,120 @@
+# rabbitmq-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: rabbitmq
+spec:
+  serviceName: rabbitmq-headless   # ③ Headless Service 참조
+  replicas: 1                       # 개발 단계: 단일 노드, 운영 시 3으로 증설
+  selector:
+    matchLabels:
+      app: rabbitmq
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      # Pod 간 순서 보장: 이전 Pod가 Ready 되어야 다음 Pod 시작
+      nodeSelector:
+        rabbitmq: "true"
+      initContainers:
+        # Erlang Cookie 파일 권한 설정 (RabbitMQ는 600 권한 강제)
+        - name: setup-erlang-cookie
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /erlang-cookie-secret/RABBITMQ_ERLANG_COOKIE /var/lib/rabbitmq/.erlang.cookie
+              chmod 600 /var/lib/rabbitmq/.erlang.cookie
+              chown 999:999 /var/lib/rabbitmq/.erlang.cookie
+          volumeMounts:
+            - name: erlang-cookie-secret
+              mountPath: /erlang-cookie-secret
+              readOnly: true
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management
+          ports:
+            - containerPort: 5672    # AMQP
+            - containerPort: 15672   # Management UI
+            - containerPort: 25672   # Erlang clustering
+            - containerPort: 4369    # EPMD
+          env:
+            # 관리자 자격증명 (② Secret 참조)
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            # 클러스터 노드 이름: Pod DNS 기반으로 설정
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@$(MY_POD_NAME).rabbitmq-headless.$(MY_POD_NAMESPACE).svc.cluster.local"
+            # 메모리 알람 임계값 (노드 메모리의 40%)
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "800m"
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "check_running"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "status"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq/conf.d/
+              readOnly: true
+
+      volumes:
+        - name: erlang-cookie-secret
+          secret:
+            secretName: rabbitmq-erlang-cookie
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+
+  # volumeClaimTemplates: Pod당 독립 PVC 자동 생성
+  # rabbitmq-0 → pvc/rabbitmq-data-rabbitmq-0
+  # rabbitmq-1 → pvc/rabbitmq-data-rabbitmq-1
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: rabbitmq-storage   # ② StorageClass 참조
+        resources:
+          requests:
+            storage: 5Gi

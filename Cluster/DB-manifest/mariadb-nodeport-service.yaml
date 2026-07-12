@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb-nodeport
+  namespace: database
+  labels:
+    app: mariadb
+spec:
+  type: NodePort
+  selector:
+    app: mariadb
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      nodePort: 30306     # 외부 DB 클라이언트 / 백엔드 서버 직접 접근용

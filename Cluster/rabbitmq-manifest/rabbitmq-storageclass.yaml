@@ -1,0 +1,10 @@
+# rabbitmq-storageclass.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rabbitmq-storage
+# 온프레미스 환경에 맞는 provisioner로 교체하세요
+# 예: rancher.io/local-path / openebs.io/local / rook-ceph 등
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain      # Pod 삭제 시 데이터 보존 (운영 필수)
+volumeBindingMode: WaitForFirstConsumer

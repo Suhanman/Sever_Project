@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-statefulset
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus-sa # 1번에서 만든 권한 부여
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.45.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml" # 설정 파일 경로
+            - "--storage.tsdb.path=/prometheus"              # 데이터 저장 경로
+            - "--storage.tsdb.retention.time=7d"            # 데이터 보관 주기
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/prometheus # ConfigMap 마운트 위치
+            - name: data-volume
+              mountPath: /prometheus     # PVC 마운트 위치
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: prometheus-pvc
+

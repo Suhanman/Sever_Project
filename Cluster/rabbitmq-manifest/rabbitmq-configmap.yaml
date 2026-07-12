@@ -1,0 +1,24 @@
+# rabbitmq-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: rabbitmq
+data:
+  # 클러스터 설정 파일
+  cluster.conf: |
+    # 클러스터 파티션 처리 전략
+    cluster_partition_handling = autoheal
+
+    # Heartbeat 간격 (초) - VPN 환경에서 연결 유지
+    heartbeat = 60
+
+    # 메시지 영속성 기본값
+    queue_master_locator = min-masters
+    vm_memory_high_watermark.relative = 0.4
+
+  # 로깅 설정
+  logging.conf: |
+    log.console = true
+    log.console.level = info
+    log.file = false

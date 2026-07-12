@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sse-configmap
+  namespace: sse
+data:
+  RABBITMQ_HOST: "rabbitmq-headless.rabbitmq"
+  RABBITMQ_PORT: "5672"

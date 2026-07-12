@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-data
+  namespace: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""      # storageClassName 빈 문자열 → 정적 PV 바인딩
+  resources:
+    requests:
+      storage: 8Gi
+  selector:
+    matchLabels:
+      app: mariadb          # mariadb-pv 레이블과 매칭

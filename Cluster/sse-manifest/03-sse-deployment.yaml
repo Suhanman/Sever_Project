@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sse-deployment
+  namespace: sse
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sse
+  template:
+    metadata:
+      labels:
+        app: sse
+    spec:
+      containers:
+        - name: sse-pod
+          image: suhannugul/capstonesse:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              memory: "100Mi"
+            limits:
+              memory: "150Mi"
+          envFrom:
+            - secretRef:
+                name: sse-secret
+            - configMapRef:
+                name: sse-configmap

@@ -1,0 +1,38 @@
+# ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sse-ingress
+  namespace: sse
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-route53"
+    # ── 기본 설정 ──────────────────────────────────────────
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Connection "";
+      chunked_transfer_encoding off;
+      proxy_cache off;
+
+    # ── App Pod: Least Connection ──────────────────────────
+    nginx.ingress.kubernetes.io/upstream-hash-by: ""    # 비활성 (RR or LeastConn)
+    nginx.ingress.kubernetes.io/load-balance: "ewma"    # ewma = 가중 최소연결 (LeastConn 대체)
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - capstone.studylink.click
+      secretName: capstone-tls-prod
+  rules:
+    - host: capstone.studylink.click
+      http:
+        paths:
+          - path: /sse/
+            pathType: Prefix
+            backend:
+              service:
+                name: sse-service      # App Pod 서비스
+                port:
+                  number: 8080
