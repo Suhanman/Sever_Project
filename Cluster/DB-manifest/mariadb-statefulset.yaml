@@ -5,7 +5,7 @@ metadata:
   namespace: database
 spec:
   serviceName: mariadb-headless
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: mariadb
@@ -15,19 +15,56 @@ spec:
       labels:
         app: mariadb
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: k8s-worker-2   # PV hostPath 위치와 동일 노드 고정
+      # nodeSelector 없음: 어느 노드에 뜨는지는 volumeClaimTemplates가 바인딩하는
+      # PV(mariadb-pv.yaml)의 nodeAffinity가 결정한다 (mariadb-0 -> worker-2, mariadb-1 -> worker-1).
+      initContainers:
+        - name: init-config
+          image: mariadb:latest
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command:
+            - bash
+            - -c
+            - |
+              set -ex
+              ordinal="${POD_NAME##*-}"
+              if [[ "$ordinal" == "0" ]]; then
+                cp /mnt/config-map/primary.cnf /mnt/conf.d/custom.cnf
+              else
+                cp /mnt/config-map/replica.cnf /mnt/conf.d/custom.cnf
+              fi
+              # [mysqld] 섹션 안에 삽입해야 한다. 파일 끝에 그냥 append하면
+              # [client] 섹션 소속이 되어 mariadb-admin/mariadb 클라이언트가
+              # "unknown variable 'server-id'"로 죽어 postStart ping 루프가 멈추지 않는다.
+              sed -i "/^\[mysqld\]/a server-id=$((ordinal + 1))" /mnt/conf.d/custom.cnf
+          volumeMounts:
+            - name: mariadb-config
+              mountPath: /mnt/config-map
+            - name: conf-d
+              mountPath: /mnt/conf.d
       containers:
         - name: mariadb
           image: mariadb:latest
           ports:
             - containerPort: 3306
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: mariadb-secret
                   key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mariadb-secret
+                  key: MYSQL_REPLICATION_PASSWORD
           resources:
             requests:
               memory: "512Mi"
@@ -53,17 +90,64 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
+          lifecycle:
+            # mysqld가 뜬 뒤 role에 따라 복제 계정을 만들거나(primary) 복제를 붙인다(replica).
+            # 재시작마다 실행되므로 멱등하게 작성: 이미 설정돼 있으면 건너뛴다.
+            postStart:
+              exec:
+                command:
+                  - bash
+                  - -c
+                  - |
+                    set -e
+                    ordinal="${POD_NAME##*-}"
+
+                    until mariadb-admin ping -uroot -p"${MYSQL_ROOT_PASSWORD}" --silent 2>/dev/null; do
+                      sleep 2
+                    done
+
+                    if [[ "$ordinal" == "0" ]]; then
+                      mariadb -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "
+                        CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '${MYSQL_REPLICATION_PASSWORD}';
+                        GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+                        FLUSH PRIVILEGES;"
+                    else
+                      # read_only는 부트스트랩(시스템 테이블 생성)이 쓰기라서 정적 cnf에 넣으면
+                      # 최초 기동이 막힌다. 서버가 뜬 뒤 동적으로 설정한다.
+                      mariadb -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "SET GLOBAL read_only='NO_LOCK_NO_ADMIN';"
+                      RUNNING=$(mariadb -uroot -p"${MYSQL_ROOT_PASSWORD}" -N -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep -c "Slave_IO_Running: Yes" || true)
+                      if [[ "$RUNNING" -eq 0 ]]; then
+                        mariadb -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "
+                          STOP SLAVE;
+                          CHANGE MASTER TO
+                            MASTER_HOST='mariadb-0.mariadb-headless.database.svc.cluster.local',
+                            MASTER_USER='repl',
+                            MASTER_PASSWORD='${MYSQL_REPLICATION_PASSWORD}',
+                            MASTER_USE_GTID=slave_pos;
+                          START SLAVE;"
+                      fi
+                    fi
           volumeMounts:
             - name: mariadb-data
               mountPath: /var/lib/mysql
-            - name: mariadb-config
+            - name: conf-d
               mountPath: /etc/mysql/conf.d/
-              readOnly: true
-
       volumes:
-        - name: mariadb-data
-          persistentVolumeClaim:
-            claimName: mariadb-data   # mariadb-pvc.yaml 참조
         - name: mariadb-config
           configMap:
             name: mariadb-config
+        - name: conf-d
+          emptyDir: {}
+
+  volumeClaimTemplates:
+    - metadata:
+        name: mariadb-data
+        labels:
+          app: mariadb
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ""
+        resources:
+          requests:
+            storage: 8Gi
